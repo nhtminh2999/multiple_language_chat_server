@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const socketio = require('socket.io');
-const AWS = require('aws-sdk');
+const axios = require('axios').default
 const { userJoin, getCurrentUser, userLeave, getRoomUsers, users } = require('./utils/users');
 
 const app = express();
@@ -13,24 +13,24 @@ const io = socketio(server, {
   cors: { origin: '*' }
 });
 
-const translate = new AWS.Translate({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: 'us-east-2',
-});
-
 const getTranslation = async (msg, destLang) => {
-  const params = {
-    Text: msg,
-    SourceLanguageCode: 'auto',
-    TargetLanguageCode: destLang
-  };
+  try {
+    const option = {
+      method: 'GET',
+      url: 'https://just-translated.p.rapidapi.com/',
+      params: { lang: destLang, text: msg },
+      headers: {
+        'X-RapidAPI-Host': process.env.RAPID_API_HOST,
+        'X-RapidAPI-Key': process.env.RAPID_API_KEY
+      }
+    };
 
-  const tranlatedMsg = await translate.translateText(params, (err, data) => {
-    return data;
-  }).promise()
-
-  return tranlatedMsg;
+    const result = await axios.request(option);
+    const tranlatedMsg = result?.data.text[0];
+    return tranlatedMsg;
+  } catch (error) {
+    return error;
+  }
 }
 
 const { messages, saveMessages, formatMessage } = require('./utils/messages');
@@ -44,8 +44,8 @@ io.on('connection', socket => {
     // Welcome current user
 
     if (!existing) {
-      const translatedMsg = await getTranslation('Welcome new user', newUser.language)
-      io.to(newUser.id).emit('message', formatMessage('Admin', translatedMsg.TranslatedText));
+      const translatedMsg = await getTranslation('Welcome', newUser.language)
+      io.to(newUser.id).emit('message', formatMessage('Admin', translatedMsg));
     }
 
     // Send users and room info
@@ -61,7 +61,7 @@ io.on('connection', socket => {
     saveMessages(currentUser, formatMessage(currentUser.name, message));
     users.forEach(async user => {
       const translatedMsg = await getTranslation(message, user.language)
-      io.to(user.id).emit('message', formatMessage(currentUser.name, translatedMsg.TranslatedText));
+      io.to(user.id).emit('message', formatMessage(currentUser.name, translatedMsg));
     })
   });
 
@@ -71,7 +71,7 @@ io.on('connection', socket => {
     if (currentUser) {
       users.forEach(async user => {
         const translatedMsg = await getTranslation(`${currentUser.name} has left the chat`, user.language)
-        io.to(user.id).emit('message', formatMessage('Admin', translatedMsg.TranslatedText));
+        io.to(user.id).emit('message', formatMessage('Admin', translatedMsg));
       })
       // Send users and room info
       io.to(currentUser.room).emit('roomUsers', {
